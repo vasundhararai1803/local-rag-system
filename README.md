@@ -2,7 +2,7 @@
 
 A completely offline, secure, and privacy-first Retrieval-Augmented Generation (RAG) system built with **Python**, **LangChain**, and **Streamlit**. It leverages local embeddings and the Ollama ecosystem to serve highly accurate document-based QA without relying on external cloud APIs.
 
-## 🏗 Architecture Overview
+## Architecture Overview
 
 The system architecture is designed to be fully isolated and local. Here is the technical stack:
 
@@ -12,7 +12,7 @@ The system architecture is designed to be fully isolated and local. Here is the 
 - **Vector Storage:** [ChromaDB](https://www.trychroma.com/) runs persistently on disk (`./chroma_db`).
 - **Data Pipelines:** PyPDFLoader and TextLoader paired with a `RecursiveCharacterTextSplitter` (1500 chunk size, 400 overlap) handle document ingestion.
 
-## ✨ Key Features
+## Key Features
 
 1. **Multi-User Session Isolation:** Streamlit assigns a unique UUID to every session. ChromaDB automatically spins up dedicated, ephemeral collections isolated to that specific user ID to ensure zero cross-contamination of documents between active users.
 2. **History-Aware Memory:** Utilizes LangChain's `create_history_aware_retriever`. The chatbot tracks your conversation, allowing you to ask ambiguous follow-up questions referencing past context.
@@ -20,7 +20,7 @@ The system architecture is designed to be fully isolated and local. Here is the 
 4. **Real-Time Streaming:** The LLM output is streamed natively to the Streamlit UI, providing instant feedback without blocking the main thread.
 5. **Source Attribution:** Responses cleanly aggregate and render the specific source files and page numbers used to generate the context.
 
-## 🚀 Getting Started
+## Getting Started
 
 ### 1. Prerequisites
 - Python 3.9+
@@ -63,6 +63,6 @@ Navigate to `http://localhost:8501` in your browser.
 └── README.md               # Architecture and setup documentation
 ```
 
-## 🔒 Privacy & Security
+## Privacy & Security
 
 This system is completely air-gapped from third-party telemetry. No API keys are required, and no document data is sent across the internet. All vectors and generation happen locally on your hardware.
