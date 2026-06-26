@@ -1,6 +1,8 @@
-.venv/
+.env
+data/
 __pycache__/
-chroma_db/
+.venv/
+.chromos/
 .chronos/
+chroma_db/
 .DS_Store
-.envdata/
