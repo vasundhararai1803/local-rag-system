@@ -1,7 +1,8 @@
 import os
 from dotenv import load_dotenv
 
-from src.pipeline import build_rag_chain
+from src.engine import LocalRAGEngine
+from src.exceptions import OffTopicException
 
 def main():
     load_dotenv()
@@ -10,9 +11,9 @@ def main():
     print("      Initializing RAG System...")
     print("="*40)
 
-    rag_chain = build_rag_chain(session_id="langchain", history_aware=False)
+    engine = LocalRAGEngine(session_id="langchain", history_aware=False)
 
-    if rag_chain == "NO_DOCS":
+    if getattr(engine, "vectorstore", None) == "NO_DOCS":
         print("No valid documents found in ./data and no existing database found.")
         print("Please add documents to ./data first.")
         return
@@ -31,7 +32,7 @@ def main():
             if not user_input.strip():
                 continue
             
-            response = rag_chain.invoke({"input": user_input})
+            response = engine.invoke({"input": user_input})
             print(f"\nAnswer: {response['answer']}")
             
             if "context" in response and response["context"]:
@@ -46,6 +47,8 @@ def main():
         except KeyboardInterrupt:
             print("\nExiting...")
             break
+        except OffTopicException:
+            print("\nI am a professional document assistant and cannot answer off-topic queries.")
         except Exception as e:
             print(f"\nAn error occurred: {e}")
 

@@ -2,8 +2,11 @@ import os
 import json
 from langchain_ollama import ChatOllama
 from langchain_core.prompts import ChatPromptTemplate
-from src.pipeline import build_rag_chain
-from src.config import LLM_MODEL, LLM_TEMPERATURE
+from config.settings import settings
+from src.engine import LocalRAGEngine
+from pydantic import BaseModel, Field
+from langchain_core.output_parsers import PydanticOutputParser
+from typing import List
 
 # 1. Define a Golden Evaluation Dataset
 # These queries represent standard test cases for the RAG system.
@@ -30,41 +33,78 @@ GOLDEN_DATASET = [
     }
 ]
 
+class FaithfulnessEvaluation(BaseModel):
+    claims: List[str] = Field(description="A list of distinct claims made in the generated answer.")
+    supported_claims: List[str] = Field(description="A list of claims from 'claims' that are strictly supported by the context.")
+
 def evaluate_faithfulness(query, context_text, generated_answer, evaluator_llm):
     """
-    Checks if the generated answer is strictly grounded in the provided context (no hallucination).
+    Checks if the generated answer is strictly grounded in the provided context by computing a fractional ratio.
     """
+    parser = PydanticOutputParser(pydantic_object=FaithfulnessEvaluation)
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are an impartial judge. Your task is to evaluate whether the generated answer is completely supported by the given context. If the answer contains any information not present in the context, it is unfaithful. Output ONLY '1' if faithful, or '0' if unfaithful. Do not output any other text."),
+        ("system", "You are an impartial judge. Your task is to evaluate whether the generated answer is completely supported by the given context. "
+                   "First, extract all distinct factual claims made in the answer. Then, determine which of those claims are explicitly supported by the context. "
+                   "Respond strictly in JSON according to these formatting instructions:\n{format_instructions}"),
         ("human", f"Context: {context_text}\n\nGenerated Answer: {generated_answer}")
-    ])
-    chain = prompt | evaluator_llm
-    result = chain.invoke({}).content.strip()
-    return 1.0 if "1" in result else 0.0
+    ]).partial(format_instructions=parser.get_format_instructions())
+    
+    chain = prompt | evaluator_llm | parser
+    try:
+        eval_result = chain.invoke({})
+        total = len(eval_result.claims)
+        if total == 0:
+            return 1.0
+        supported = len(eval_result.supported_claims)
+        return float(supported) / float(total)
+    except Exception as e:
+        print(f"Faithfulness eval failed: {e}")
+        return 0.0
 
-def evaluate_context_precision(query, context_text, evaluator_llm):
+class ContextPrecisionEvaluation(BaseModel):
+    relevant_chunks_count: int = Field(description="The number of provided context chunks that contain information necessary to answer the query.")
+    total_chunks_count: int = Field(description="The total number of context chunks provided.")
+
+def evaluate_context_precision(query, context_docs, evaluator_llm):
     """
     Checks if the retrieved context actually contains the relevant information to address the query.
     """
+    if not context_docs:
+        return 0.0
+        
+    parser = PydanticOutputParser(pydantic_object=ContextPrecisionEvaluation)
+    chunks_text = "\n\n".join([f"Chunk {i+1}:\n{doc.page_content}" for i, doc in enumerate(context_docs)])
+    
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are an impartial judge. Your task is to evaluate whether the provided context contains the necessary information to accurately answer the user's query. Output ONLY '1' if the context contains the answer, or '0' if it does not. Do not output any other text."),
-        ("human", f"Query: {query}\n\nContext: {context_text}")
-    ])
-    chain = prompt | evaluator_llm
-    result = chain.invoke({}).content.strip()
-    return 1.0 if "1" in result else 0.0
+        ("system", "You are an impartial judge. Your task is to evaluate whether the provided context chunks contain the necessary information to accurately answer the user's query. "
+                   "Count how many chunks are actually relevant. "
+                   "Respond strictly in JSON according to these formatting instructions:\n{format_instructions}"),
+        ("human", f"Query: {query}\n\nContext Chunks:\n{chunks_text}")
+    ]).partial(format_instructions=parser.get_format_instructions())
+    
+    chain = prompt | evaluator_llm | parser
+    try:
+        eval_result = chain.invoke({})
+        total = eval_result.total_chunks_count
+        if total <= 0 or total < len(context_docs):
+            total = len(context_docs)
+        relevant = eval_result.relevant_chunks_count
+        return min(1.0, float(relevant) / float(total))
+    except Exception as e:
+        print(f"Context precision eval failed: {e}")
+        return 0.0
 
 def run_evaluation():
     print("Initializing RAG Pipeline for Evaluation...")
     # Initialize the retrieval chain
-    rag_chain = build_rag_chain(session_id="eval_session", history_aware=False)
+    engine = LocalRAGEngine(session_id="eval_session", history_aware=False)
     
-    if rag_chain == "NO_DOCS":
+    if getattr(engine, "vectorstore", None) == "NO_DOCS":
         print("WARNING: No documents found in ./data for eval_session. The RAG system will rely solely on the LLM's internal knowledge (or will fail to retrieve context).")
         print("Please upload relevant documents to ./data to test retrieval metrics properly.")
         # Proceed anyway to test the flow, though context will be empty.
     
-    evaluator_llm = ChatOllama(model=LLM_MODEL, temperature=0.0, num_ctx=2048)
+    evaluator_llm = ChatOllama(model=settings.llm_model, temperature=0.0, num_ctx=2048)
     
     results = []
     
@@ -78,12 +118,12 @@ def run_evaluation():
         ground_truth = item["ground_truth"]
         
         # Programmatically execute pipeline
-        if rag_chain == "NO_DOCS":
+        if getattr(engine, "vectorstore", None) == "NO_DOCS":
             # Mock empty context if no docs available, purely for structural testing
             response = {"answer": "I cannot find that in the documents.", "context": []}
         else:
             try:
-                response = rag_chain.invoke({"input": query})
+                response = engine.invoke({"input": query})
             except Exception as e:
                 response = {"answer": f"Error: {e}", "context": []}
         
@@ -95,7 +135,7 @@ def run_evaluation():
         
         # Compute alignment metrics
         faithfulness_score = evaluate_faithfulness(query, context_text, generated_answer, evaluator_llm)
-        precision_score = evaluate_context_precision(query, context_text, evaluator_llm)
+        precision_score = evaluate_context_precision(query, context_docs, evaluator_llm)
         
         # Aggregate logic
         total_score = faithfulness_score + precision_score

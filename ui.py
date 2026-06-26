@@ -8,13 +8,14 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_ollama import ChatOllama
 
-from src.config import DATA_DIR, LLM_MODEL, LLM_TEMPERATURE, LLM_NUM_CTX
-from src.pipeline import build_rag_chain
+from config.settings import settings
+from src.engine import LocalRAGEngine
+from src.exceptions import OffTopicException
 
 # Load env variables
 load_dotenv()
 
-os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(settings.data_dir, exist_ok=True)
 
 st.set_page_config(page_title="Local RAG System", page_icon="🤖")
 
@@ -23,21 +24,21 @@ if "user_session_id" not in st.session_state:
 
 @st.cache_resource(show_spinner=False)
 def get_rag_chain(session_id):
-    return build_rag_chain(session_id, history_aware=True)
+    return LocalRAGEngine(session_id, history_aware=True)
 
 def process_uploaded_files(uploaded_files, session_id):
     if not uploaded_files:
         return
     with st.spinner("Processing documents..."):
         try:
-            import chromadb
-            client = chromadb.PersistentClient(path="./chroma_db")
+            from qdrant_client import QdrantClient
+            client = QdrantClient(url=settings.vector_store_url)
             try:
                 client.delete_collection(session_id)
             except Exception:
                 pass
             # Clear previous files in data directory to prevent re-ingestion
-            user_data_dir = os.path.join(DATA_DIR, session_id)
+            user_data_dir = os.path.join(settings.data_dir, session_id)
             if os.path.exists(user_data_dir):
                 for old_file in glob.glob(f"{user_data_dir}/*"):
                     if os.path.isfile(old_file):
@@ -45,7 +46,7 @@ def process_uploaded_files(uploaded_files, session_id):
         except Exception as e:
             st.warning(f"Could not cleanly reset previous data: {e}")
 
-        user_data_dir = os.path.join(DATA_DIR, session_id)
+        user_data_dir = os.path.join(settings.data_dir, session_id)
         os.makedirs(user_data_dir, exist_ok=True)
         for uploaded_file in uploaded_files:
             file_path = os.path.join(user_data_dir, uploaded_file.name)
@@ -99,7 +100,7 @@ if prompt_data := st.chat_input("Ask a question about your documents...", accept
     if prompt_text:
         rag_chain = get_rag_chain(st.session_state.user_session_id)
         
-        if rag_chain == "NO_DOCS":
+        if getattr(rag_chain, "vectorstore", None) == "NO_DOCS":
             st.warning("⚠️ Please attach a PDF or text document first using the '+' button before asking questions!")
         else:
             # Display user message in chat message container
@@ -143,13 +144,12 @@ if prompt_data := st.chat_input("Ask a question about your documents...", accept
                             if chunk_text not in seen_chunks:
                                 unique_sources.append({"source": src_str, "content": chunk_text})
                                 seen_chunks.add(chunk_text)
+                except OffTopicException:
+                    response = "I am a professional document assistant and cannot answer off-topic queries."
+                    st.markdown(response)
                 except ValueError as ve:
-                    if str(ve) == "OFF_TOPIC":
-                        response = "I am a professional document assistant and cannot answer off-topic queries."
-                        st.markdown(response)
-                    else:
-                        response = f"An error occurred: {ve}"
-                        st.markdown(response)
+                    response = f"An error occurred: {ve}"
+                    st.markdown(response)
                 except Exception as e:
                     response = f"An error occurred: {e}"
                     st.markdown(response)
