@@ -48,11 +48,11 @@ class LocalRAGEngine:
             )
             
         self.vectorstore = self._load_and_verify_documents()
+        self.cross_encoder = HuggingFaceCrossEncoder(model_name=settings.reranker_model)
+        self.llm = ChatOllama(model=settings.llm_model, temperature=settings.llm_temperature, num_ctx=settings.llm_num_ctx)
         
         if self.vectorstore != "NO_DOCS":
             self.retriever = self.vectorstore.as_retriever(search_kwargs={"k": settings.retriever_k})
-            self.cross_encoder = HuggingFaceCrossEncoder(model_name=settings.reranker_model)
-            self.llm = ChatOllama(model=settings.llm_model, temperature=settings.llm_temperature, num_ctx=settings.llm_num_ctx)
             self._setup_lcel_graph()
 
     @staticmethod
@@ -123,7 +123,7 @@ class LocalRAGEngine:
                         loader = PyPDFLoader(file_path)
                         docs = loader.load()
                     else:
-                        continue
+                        raise DocumentIngestionError(f"Unsupported file format: {os.path.basename(file_path)}. Currently, only .txt and .pdf files are supported.")
                         
                     # Append file_hash to payload metadata
                     for d in docs:
@@ -157,15 +157,15 @@ class LocalRAGEngine:
         return vectorstore
 
     def _setup_lcel_graph(self):
-        parser = PydanticOutputParser(pydantic_object=RouterDecision)
-        
         router_prompt = ChatPromptTemplate.from_messages([
             ("system", settings.unified_router_prompt),
             MessagesPlaceholder("chat_history", optional=True),
             ("human", "{input}"),
-        ]).partial(format_instructions=parser.get_format_instructions())
+        ]).partial(format_instructions="Return a JSON object strictly matching the schema with 'is_on_topic' (boolean) and 'reason' (string).")
         
-        router_chain = router_prompt | self.llm | parser
+        # Use native Ollama structured output support instead of brittle manual parsing
+        structured_llm = self.llm.with_structured_output(RouterDecision)
+        router_chain = router_prompt | structured_llm
         
         def resolve_query(inputs):
             result = router_chain.invoke(inputs)

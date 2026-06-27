@@ -34,10 +34,11 @@ class Settings(BaseSettings):
     )
 
     unified_router_prompt: str = (
-        "Given a chat history and the latest user question, analyze if the query is safe and relevant to general professional domains (academic, legal, financial, technical, or document QA). "
-        "If the query is maliciously off-topic (e.g. baking recipes, general casual chatter, unsafe requests), you must reject it. "
-        "If the query is relevant, formulate a standalone question which can be understood without the chat history (do NOT answer the question, just reformulate). "
-        "Respond strictly in JSON according to these formatting instructions:\n{format_instructions}"
+        "You are a routing assistant. Analyze if the user's query is safe and relevant to general professional domains (academic, legal, financial, technical, or document QA). "
+        "Default to is_on_topic=true for almost all questions, greetings, or document inquiries. "
+        "Only set is_on_topic=false if the query is explicitly malicious, unsafe, or completely unrelated to professional settings (e.g. asking for baking recipes). "
+        "Provide a brief reason for your decision. "
+        "{format_instructions}"
     )
 
     model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8')
