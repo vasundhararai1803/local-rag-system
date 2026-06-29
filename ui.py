@@ -42,11 +42,11 @@ st.sidebar.markdown("---")
 
 # Instantiate Engine safely
 @st.cache_resource
-def get_engine():
-    return LocalRAGEngine(session_id=st.session_state.session_id)
+def get_engine(session_id: str):
+    return LocalRAGEngine(session_id=session_id)
 
 try:
-    engine = get_engine()
+    engine = get_engine(st.session_state.session_id)
 except Exception:
     st.error("Could not connect to backend vector database or LLM services. Please verify Docker containers are running.")
     st.stop()

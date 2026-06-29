@@ -12,24 +12,24 @@ from typing import List
 # These queries represent standard test cases for the RAG system.
 GOLDEN_DATASET = [
     {
-        "query": "What is the symbolic significance of the monolith in 2001: A Space Odyssey?",
-        "ground_truth": "The monolith represents a catalyst for human evolution and extraterrestrial intelligence."
+        "query": "What was the name of NASA's third human spaceflight program?",
+        "ground_truth": "Project Apollo was NASA's third United States human spaceflight program."
     },
     {
-        "query": "How does the pacing in Inception compare to Interstellar?",
-        "ground_truth": "Inception relies on fast-paced, multi-layered action sequences, whereas Interstellar features a slower, more emotionally driven build-up."
+        "query": "On what date did Apollo 11 land on the Moon?",
+        "ground_truth": "The Apollo 11 mission successfully landed the first humans on the Moon on July 20, 1969."
     },
     {
-        "query": "Describe the character arc of Michael Corleone across the first two Godfather films.",
-        "ground_truth": "Michael transforms from a reluctant outsider wanting a legitimate life to a ruthless, isolated mafia don."
+        "query": "Who were the astronauts that landed the Apollo Lunar Module Eagle?",
+        "ground_truth": "Commander Neil Armstrong and lunar module pilot Buzz Aldrin formed the American crew that landed the Apollo Lunar Module Eagle."
     },
     {
-        "query": "What are the core technical requirements for the local RAG system according to the project documentation?",
-        "ground_truth": "The core technical requirements include Python 3.10+, local LLaMA 3.2 via Ollama, HuggingFace embeddings, and ChromaDB."
+        "query": "What was Michael Collins' role during the Apollo 11 mission?",
+        "ground_truth": "Michael Collins flew the Command Module Columbia alone in lunar orbit."
     },
     {
-        "query": "How does the local RAG system ensure privacy?",
-        "ground_truth": "It ensures privacy by keeping all vectors and generations on local hardware, air-gapped from third-party telemetry, without requiring external API keys."
+        "query": "Which rocket was used to launch the Apollo missions?",
+        "ground_truth": "The Saturn V rocket was used to launch the Apollo missions."
     }
 ]
 

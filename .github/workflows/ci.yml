@@ -1,35 +1,39 @@
-name: Continuous Integration
+name: CI Validation Workflow
 
 on:
   push:
-    branches: [ main ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ main ]
+    branches: [ "main" ]
 
 jobs:
-  validate:
+  build-and-test:
     runs-on: ubuntu-latest
+    
     steps:
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    - name: Set up Python
+    - name: Set up Python 3.11
       uses: actions/setup-python@v5
       with:
-        python-version: '3.11'
+        python-version: "3.11"
         cache: 'pip'
 
-    - name: Install Verified Dependencies
+    - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install ruff mypy pytest
         pip install -r requirements.txt
+        pip install mypy ruff pytest
 
     - name: Lint with Ruff
-      run: ruff check .
+      run: |
+        ruff check .
 
-    - name: Type Check with Mypy
-      run: mypy --ignore-missing-imports src/ config/
+    - name: Static Typing with mypy
+      run: |
+        mypy src/ --ignore-missing-imports
 
-    - name: Run Unit Tests
-      run: pytest tests/
+    - name: Run Tests with pytest
+      run: |
+        pytest tests/

@@ -1,9 +1,10 @@
 import os
 import glob
 import hashlib
+import tiktoken
 from typing import List, Dict, Any, Generator
 
-from langchain_community.document_loaders import TextLoader, PyPDFLoader
+from langchain_community.document_loaders import TextLoader, PyPDFLoader, Docx2txtLoader, UnstructuredMarkdownLoader, UnstructuredHTMLLoader
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_ollama import ChatOllama
@@ -14,8 +15,9 @@ from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 from pydantic import BaseModel, Field
 
 from qdrant_client import QdrantClient
+from qdrant_client.http import models
 from qdrant_client.http.models import Distance, VectorParams, Filter, FieldCondition, MatchValue
-from langchain_qdrant import QdrantVectorStore
+from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
 
 from config.settings import settings
 from src.exceptions import OffTopicException, DocumentIngestionError
@@ -35,6 +37,7 @@ class LocalRAGEngine:
         os.makedirs(self.user_data_dir, exist_ok=True)
         
         self.embeddings = HuggingFaceEmbeddings(model_name=settings.embedding_model)
+        self.sparse_embeddings = FastEmbedSparse(model_name="Qdrant/bm25")
         
         # 1 & 2. Integrate QdrantClient and Connect via Settings
         self.qdrant_client = QdrantClient(url=settings.vector_store_url)
@@ -45,6 +48,7 @@ class LocalRAGEngine:
             self.qdrant_client.create_collection(
                 collection_name=self.session_id,
                 vectors_config=VectorParams(size=384, distance=Distance.COSINE),
+                sparse_vectors_config={"sparse": models.SparseVectorParams(modifier=models.Modifier.IDF)},
             )
             
         self.vectorstore = self._load_and_verify_documents()
@@ -52,7 +56,14 @@ class LocalRAGEngine:
         self.llm = ChatOllama(model=settings.llm_model, temperature=settings.llm_temperature, num_ctx=settings.llm_num_ctx)
         
         if self.vectorstore != "NO_DOCS":
-            self.retriever = self.vectorstore.as_retriever(search_kwargs={"k": settings.retriever_k})
+            self.retriever = self.vectorstore.as_retriever(
+                search_type="mmr",
+                search_kwargs={
+                    "k": settings.retriever_k,
+                    "fetch_k": settings.retriever_k * 3,
+                    "lambda_mult": 0.5
+                }
+            )
             self._setup_lcel_graph()
 
     @staticmethod
@@ -65,17 +76,20 @@ class LocalRAGEngine:
         
     @staticmethod
     def _truncate_context_to_budget(docs, max_tokens=3000):
-        # Safe character approximation (4 chars ~= 1 token)
-        max_chars = max_tokens * 4
-        current_chars = 0
+        try:
+            enc = tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            enc = tiktoken.get_encoding("gpt2")
+            
+        current_tokens = 0
         truncated_docs = []
         
         for doc in docs:
-            doc_len = len(doc.page_content)
-            if current_chars + doc_len > max_chars:
+            doc_tokens = len(enc.encode(doc.page_content))
+            if current_tokens + doc_tokens > max_tokens:
                 logger.warning("Token budget exceeded. Truncating lower-ranked context chunks.")
                 break
-            current_chars += doc_len
+            current_tokens += doc_tokens
             truncated_docs.append(doc)
             
         return truncated_docs
@@ -122,8 +136,17 @@ class LocalRAGEngine:
                     elif file_path.endswith('.pdf'):
                         loader = PyPDFLoader(file_path)
                         docs = loader.load()
+                    elif file_path.endswith('.docx'):
+                        loader = Docx2txtLoader(file_path)
+                        docs = loader.load()
+                    elif file_path.endswith('.md'):
+                        loader = UnstructuredMarkdownLoader(file_path)
+                        docs = loader.load()
+                    elif file_path.endswith('.html'):
+                        loader = UnstructuredHTMLLoader(file_path)
+                        docs = loader.load()
                     else:
-                        raise DocumentIngestionError(f"Unsupported file format: {os.path.basename(file_path)}. Currently, only .txt and .pdf files are supported.")
+                        raise DocumentIngestionError(f"Unsupported file format: {os.path.basename(file_path)}. Currently supported: .txt, .pdf, .docx, .md, .html")
                         
                     # Append file_hash to payload metadata
                     for d in docs:
@@ -142,6 +165,8 @@ class LocalRAGEngine:
             client=self.qdrant_client,
             collection_name=self.session_id,
             embedding=self.embeddings,
+            sparse_embedding=self.sparse_embeddings,
+            retrieval_mode=RetrievalMode.HYBRID,
         )
             
         if new_documents:

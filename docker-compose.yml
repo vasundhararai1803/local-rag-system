@@ -1,9 +1,10 @@
-version: '3.8'
 
 services:
   ollama:
     image: ollama/ollama:latest
     container_name: ollama_service
+    entrypoint: >
+      /bin/sh -c "ollama serve & sleep 5 && ollama pull llama3.2 && wait"
     volumes:
       - ollama_storage:/root/.ollama
     ports:

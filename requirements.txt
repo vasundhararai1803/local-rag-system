@@ -11,3 +11,7 @@ pydantic==2.9.1
 pydantic-settings==2.5.2
 qdrant-client==1.11.0
 langchain-qdrant==0.1.4
+fastembed
+docx2txt
+unstructured[markdown,html]
+tiktoken
